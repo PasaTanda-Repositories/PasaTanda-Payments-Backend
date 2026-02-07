@@ -117,7 +117,7 @@ export class SignerService implements OnModuleInit {
   ): Promise<IdentityBalance> {
     try {
       const { balance } = await this.suiClient.core.getBalance({
-        owner: identity.address,
+        address: identity.address,
         coinType,
       });
 
