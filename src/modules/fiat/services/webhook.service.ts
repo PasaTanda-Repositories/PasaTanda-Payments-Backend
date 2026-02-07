@@ -14,11 +14,11 @@ export class WebhookService {
 
   constructor(private readonly configService: ConfigService) {}
 
-  async sendQrGenerated(orderId: string, qrImageBase64: string): Promise<void> {
+  async sendQrGenerated(orderId: string, qrImageIpfsUrl: string): Promise<void> {
     await this.dispatch({
       type: 'QR_GENERATED',
       order_id: orderId,
-      data: { qr_image_base64: qrImageBase64 },
+      data: { qr_image_ipfs_url: qrImageIpfsUrl },
     });
   }
 

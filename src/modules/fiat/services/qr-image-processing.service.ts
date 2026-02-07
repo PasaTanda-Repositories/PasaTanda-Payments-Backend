@@ -5,6 +5,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import axios from 'axios';
 import FormData from 'form-data';
+import { log } from 'console';
 
 /**
  * QR Image Processing Service
@@ -19,7 +20,10 @@ import FormData from 'form-data';
 @Injectable()
 export class QrImageProcessingService {
   private readonly logger = new Logger(QrImageProcessingService.name);
-  private readonly tmpDir = path.join(process.cwd(), 'tmp', 'qr-tests');
+  private readonly qrTestsDir = path.join(process.cwd(), 'tmp', 'qr-tests');
+  private readonly fineQrDir = path.join(process.cwd(), 'tmp', 'qr-fine');
+  private readonly cropDir = path.join(process.cwd(), 'tmp', 'crop');
+  private readonly saveLocally: boolean;
   private readonly assetsDir = path.join(process.cwd(), 'assets');
   private readonly logoPath = path.join(
     this.assetsDir,
@@ -33,12 +37,18 @@ export class QrImageProcessingService {
   );
 
   constructor(private readonly configService: ConfigService) {
+    this.saveLocally =
+      (this.configService.get<string>('SAVE_QR_IMAGES_LOCALLY') || '').toLowerCase() === 'true';
     void this.ensureDirectories();
   }
 
   private async ensureDirectories(): Promise<void> {
     try {
-      await fs.mkdir(this.tmpDir, { recursive: true });
+      if (this.saveLocally) {
+        await fs.mkdir(this.qrTestsDir, { recursive: true });
+        await fs.mkdir(this.fineQrDir, { recursive: true });
+        await fs.mkdir(this.cropDir, { recursive: true });
+      }
       await fs.mkdir(this.assetsDir + '/images', { recursive: true });
       await fs.mkdir(this.assetsDir + '/fonts', { recursive: true });
     } catch (error) {
@@ -89,11 +99,13 @@ export class QrImageProcessingService {
 
       const timestamp = Date.now();
       const filename = `qr_${groupName.replace(/\s+/g, '_')}_${timestamp}.png`;
-      const savedPath = path.join(this.tmpDir, filename);
-      await fs.writeFile(savedPath, finalImage);
+      const savedPath = path.join(this.fineQrDir, filename);
+      if (this.saveLocally) {
+        await fs.writeFile(savedPath, finalImage);
+      }
 
       const ipfsUrl = await this.uploadToIPFS(finalImage, filename);
-
+      this.logger.log(`📸 QR image processed and uploaded to IPFS: ${ipfsUrl}`);
       return { ipfsUrl, savedPath };
     } catch (error) {
       this.logger.error('Error processing QR image', error);
@@ -108,15 +120,59 @@ export class QrImageProcessingService {
     let workingBuffer = qrBuffer;
 
     if (metadata.width && metadata.height) {
-      const minSide = Math.min(metadata.width, metadata.height);
-      const cropSize = Math.max(Math.floor(minSide - 32), 0);
-      const left = Math.max(Math.floor((metadata.width - cropSize) / 2), 0);
-      const top = Math.max(Math.floor((metadata.height - cropSize) / 2), 0);
+      const cropWidth = 320;
+      const cropHeight = 320;
+      const offsetX = 15;
+      const offsetY = 15;
 
-      if (cropSize > 0) {
+      const fitsHorizontally = metadata.width >= offsetX + cropWidth;
+      const fitsVertically = metadata.height >= offsetY + cropHeight;
+
+      if (fitsHorizontally && fitsVertically) {
         workingBuffer = await sharp(qrBuffer)
-          .extract({ left, top, width: cropSize, height: cropSize })
+          .extract({
+            left: offsetX,
+            top: offsetY,
+            width: cropWidth,
+            height: cropHeight,
+          })
           .toBuffer();
+
+        // Save the raw cropped QR to tmp/crop for inspection
+        if (this.saveLocally) {
+          try {
+            const cropFilename = `crop_${Date.now()}_${cropWidth}x${cropHeight}.png`;
+            const cropPath = path.join(this.cropDir, cropFilename);
+            await fs.writeFile(cropPath, workingBuffer);
+            this.logger.log(`Saved cropped QR to ${cropPath}`);
+          } catch (err) {
+            this.logger.warn('Failed to save cropped QR', err as Error);
+          }
+        }
+      } else {
+        const minSide = Math.min(metadata.width, metadata.height);
+        const fallbackCrop = Math.max(Math.floor(minSide - 32), 0);
+        const left = Math.max(Math.floor((metadata.width - fallbackCrop) / 2), 0);
+        const top = Math.max(Math.floor((metadata.height - fallbackCrop) / 2), 0);
+
+        if (fallbackCrop > 0) {
+          workingBuffer = await sharp(qrBuffer)
+            .extract({ left, top, width: fallbackCrop, height: fallbackCrop })
+            .toBuffer();
+
+          
+          // Save fallback cropped image as well
+          if (this.saveLocally) {
+            try {
+              const cropFilename = `crop_${Date.now()}_${fallbackCrop}x${fallbackCrop}.png`;
+              const cropPath = path.join(this.cropDir, cropFilename);
+              await fs.writeFile(cropPath, workingBuffer);
+              this.logger.log(`Saved fallback cropped QR to ${cropPath}`);
+            } catch (err) {
+              this.logger.warn('Failed to save fallback cropped QR', err as Error);
+            }
+          }
+        }
       }
     }
 

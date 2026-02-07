@@ -5,7 +5,7 @@ import { FiatBrowserService } from './services/fiat-browser.service';
 import { WebhookService } from './services/webhook.service';
 import { TwoFactorRequiredError } from './errors/two-factor-required.error';
 import { JobQueueService } from './services/job-queue.service';
-
+import { QrImageProcessingService } from './services/qr-image-processing.service';
 @Injectable()
 export class FiatAutomationService {
   private readonly logger = new Logger(FiatAutomationService.name);
@@ -14,6 +14,7 @@ export class FiatAutomationService {
     private readonly browserService: FiatBrowserService,
     private readonly webhookService: WebhookService,
     private readonly jobQueueService: JobQueueService,
+    private readonly qrImageProcessingService: QrImageProcessingService,
   ) {}
 
   async processGenerateQr(dto: GenerateQrDto): Promise<void> {
@@ -22,7 +23,21 @@ export class FiatAutomationService {
         dto.amount,
         dto.details,
       );
-      await this.webhookService.sendQrGenerated(dto.orderId, qrBase64);
+      const processedQr = await this.qrImageProcessingService.processQrImage(
+        qrBase64,
+        dto.details,
+        dto.amount.toString(),
+      );
+      const ipfsLink =
+        processedQr.ipfsUrl ?? this.qrImageProcessingService.getDefaultQrLink();
+
+      if (!processedQr.ipfsUrl) {
+        this.logger.warn(
+          'No se obtuvo URL de IPFS, enviando enlace de respaldo',
+        );
+      }
+
+      await this.webhookService.sendQrGenerated(dto.orderId, ipfsLink);
     } catch (error) {
       await this.handleAutomationError(error);
       throw error;
