@@ -5,7 +5,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import axios from 'axios';
 import FormData from 'form-data';
-import { log } from 'console';
+import { pathToFileURL } from 'node:url';
 
 /**
  * QR Image Processing Service
@@ -34,6 +34,11 @@ export class QrImageProcessingService {
     this.assetsDir,
     'images',
     'template.png',
+  );
+  private readonly headlineFontPath = path.join(
+    this.assetsDir,
+    'fonts',
+    'StackSansHeadline.ttf',
   );
 
   constructor(private readonly configService: ConfigService) {
@@ -91,7 +96,7 @@ export class QrImageProcessingService {
     try {
       const qrBuffer = Buffer.from(base64Qr, 'base64');
       const preparedQr = await this.prepareQrImage(qrBuffer);
-      const finalImage = await this.composeWithTemplate(
+      const finalImage = await this.generateBrandedImage(
         preparedQr,
         groupName,
         amountBs,
@@ -216,116 +221,111 @@ export class QrImageProcessingService {
       .toBuffer();
   }
 
-  private async composeWithTemplate(
+  private async generateBrandedImage(
     qrBuffer: Buffer,
     groupName: string,
     amountBs: string,
   ): Promise<Buffer> {
-    if (!(await this.fileExists(this.templatePath))) {
-      return this.buildFallbackTemplate(qrBuffer, groupName, amountBs);
-    }
+    const width = 1080;
+    const height = 1080;
+    const qrSize = 800;
 
-    const template = sharp(this.templatePath);
-    const metadata = await template.metadata();
-    const width = metadata.width ?? 1080;
-    const height = metadata.height ?? 1080;
-    const qrSize = Math.floor(Math.min(width, height) * 0.72);
+    const frameSvg = await this.buildFrameSvg(width, height, groupName, amountBs);
+    const frameBuffer = await sharp(Buffer.from(frameSvg)).png().toBuffer();
 
-    const qrWithSize = await sharp(qrBuffer)
+    const qrResized = await sharp(qrBuffer)
       .resize(qrSize, qrSize, {
         fit: 'contain',
-        background: '#fff',
+        background: '#00000000', // Transparent background
         kernel: sharp.kernel.nearest,
       })
       .png()
       .toBuffer();
 
-    const composed = await template
-      .composite([
-        {
-          input: qrWithSize,
-          left: Math.max(Math.floor((width - qrSize) / 2), 0),
-          top: Math.max(Math.floor((height - qrSize) / 2), 0),
-        },
-      ])
-      .png()
-      .toBuffer();
+    const offset = Math.floor((width - qrSize) / 2);
 
-    return this.overlayQrFooter(composed, groupName, amountBs);
-  }
-
-  private async overlayQrFooter(
-    baseImage: Buffer,
-    groupName: string,
-    amountBs: string,
-  ): Promise<Buffer> {
-    const metadata = await sharp(baseImage).metadata();
-    const width = metadata.width ?? 1080;
-    const height = metadata.height ?? 1080;
-    const footerSvg = this.buildFooterSvg(width, height, groupName, amountBs);
-
-    return sharp(baseImage)
-      .composite([
-        {
-          input: Buffer.from(footerSvg),
-          left: 0,
-          top: 0,
-        },
-      ])
+    return sharp(frameBuffer)
+      .composite([{ input: qrResized, left: offset, top: offset }])
       .png()
       .toBuffer();
   }
 
-  private buildFooterSvg(
+  private async resolveHeadlineFontUrl(): Promise<string | null> {
+    if (await this.fileExists(this.headlineFontPath)) {
+      return pathToFileURL(this.headlineFontPath).href;
+    }
+
+    this.logger.warn(
+      'No se encontró StackSansHeadline.ttf; el overlay usará la fuente por defecto.',
+    );
+    return null;
+  }
+
+  private async buildFrameSvg(
     width: number,
     height: number,
     groupName: string,
     amountBs: string,
-  ): string {
+  ): Promise<string> {
+    const fontUrl = await this.resolveHeadlineFontUrl();
     const safeGroup = this.escapeSvg(groupName);
     const safeAmount = this.escapeSvg(amountBs);
-    const y = height - 50;
+    
+    const fontFace = fontUrl
+      ? `@font-face { font-family: 'StackSansHeadline'; src: url('${fontUrl}') format('truetype'); }`
+      : '';
+
+    // Layout configuration
+    const margin = 50; 
+    const cardWidth = width - (margin * 2);
+    const cardHeight = height - (margin * 2); 
+    
+    // Vertical positions
+    const titleY = margin + 70; 
+    const footerY = height - margin - 30; 
+    
+    // Side margins for vertical text
+    const sideTextMargin = margin + 70;
 
     return `
       <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-        <style>
-          .footer { font: 38px 'Helvetica Neue', Arial, sans-serif; font-weight: 600; fill: #000; }
-          .amount { font: 38px 'Helvetica Neue', Arial, sans-serif; font-weight: 700; fill: #000; }
-        </style>
-        <text x="${Math.floor(width * 0.12)}" y="${y}" text-anchor="start" class="footer">${safeGroup}</text>
-        <text x="${Math.floor(width * 0.5)}" y="${y}" text-anchor="middle" class="amount">Bs. ${safeAmount}</text>
-      </svg>
-    `;
-  }
-
-  private async buildFallbackTemplate(
-    qrBuffer: Buffer,
-    groupName: string,
-    amountBs: string,
-  ): Promise<Buffer> {
-    const qrPng = await sharp(qrBuffer).png().toBuffer();
-    const qrDataUrl = `data:image/png;base64,${qrPng.toString('base64')}`;
-    const safeGroup = this.escapeSvg(groupName);
-    const safeAmount = this.escapeSvg(amountBs);
-
-    const svg = `
-      <svg width="1200" height="1400" viewBox="0 0 1200 1400" xmlns="http://www.w3.org/2000/svg">
         <defs>
-          <style>
-            .title { font: 62px 'Helvetica Neue', Arial, sans-serif; font-weight: 700; fill: #000; }
-            .label { font: 44px 'Helvetica Neue', Arial, sans-serif; font-weight: 500; fill: #000; }
-          </style>
+            <style>
+                ${fontFace}
+                .base { font-family: 'StackSansHeadline', sans-serif; fill: #000; }
+                .title { font-size: 55px; font-weight: 900; }
+                .side-title { font-size: 55px; font-weight: 900; }
+                .footer-text { font-size: 42px; font-weight: 400; }
+                .amount-text { font-size: 48px; font-weight: 400; }
+            </style>
+            <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+              <feDropShadow dx="0" dy="8" stdDeviation="15" flood-color="#000000" flood-opacity="0.25"/>
+            </filter>
         </defs>
-        <rect width="1200" height="1400" fill="#fff" />
-        <text x="600" y="120" text-anchor="middle" class="title">PasaTanda</text>
-        <image href="${qrDataUrl}" x="170" y="200" width="860" height="860" preserveAspectRatio="xMidYMid meet" />
-        <text x="140" y="1250" text-anchor="start" class="label">${safeGroup}</text>
-        <text x="600" y="1250" text-anchor="middle" class="label">Bs. ${safeAmount}</text>
+        
+        <!-- Background Canvas (Off-white to contrast the card) -->
+        <rect width="100%" height="100%" fill="#f4f4f4" />
+        
+        <!-- Elevated Card with Drop Shadow (rounded corners) -->
+        <rect x="${margin}" y="${margin}" width="${cardWidth}" height="${cardHeight}" rx="24" ry="24" fill="#ffffff" filter="url(#shadow)" />
+
+        <!-- Header -->
+        <text class="base title" x="${width/2}" y="${titleY}" text-anchor="middle">PasaTanda</text>
+        
+        <!-- Left Side Logo -->
+        <text class="base side-title" x="${sideTextMargin}" y="${height/2}" text-anchor="middle" transform="rotate(-90 ${sideTextMargin} ${height/2})">PasaTanda</text>
+        
+        <!-- Right Side Logo -->
+        <text class="base side-title" x="${width - sideTextMargin}" y="${height/2}" text-anchor="middle" transform="rotate(90 ${width - sideTextMargin} ${height/2})">PasaTanda</text>
+        
+        <!-- Footer -->
+        <text class="base footer-text" x="${margin + 50}" y="${footerY}" text-anchor="start">${safeGroup}</text>
+        <text class="base amount-text" x="${width / 2}" y="${footerY}" text-anchor="middle">Bs. ${safeAmount}</text>
+        <text class="base footer-text" x="${width - margin - 50}" y="${footerY}" text-anchor="end">1ra cuota</text>
       </svg>
     `;
-
-    return sharp(Buffer.from(svg)).png().toBuffer();
   }
+
 
   /**
    * Upload image to IPFS via Pinata Cloud
