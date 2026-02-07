@@ -25,6 +25,7 @@ import {
   SignedGasTransaction,
   SupportedNetwork,
 } from './interfaces/signer.interfaces';
+import { log } from 'console';
 
 @Injectable()
 export class SignerService implements OnModuleInit {
@@ -36,16 +37,28 @@ export class SignerService implements OnModuleInit {
   constructor(private readonly configService: ConfigService) {}
 
   onModuleInit(): void {
+    this.logger.log('Initializing SignerService and loading identities');
     this.suiClient = this.buildSuiClient();
     this.sponsor = this.loadIdentity('sponsor', [
       'SUI_SPONSOR_PRIVATE_KEY',
-      'SPONSOR_PRIVATE_KEY',
-      'SUI_PRIV_KEY',
     ]);
     this.relayer = this.loadIdentity('relayer', [
       'SUI_RELAYER_PRIVATE_KEY',
-      'RELAYER_PRIVATE_KEY',
     ]);
+
+
+/*     this.fetchBalance(this.sponsor, this.configService.get<string>('SUI_COIN_TYPE') ?? '0x2::sui::SUI')
+      .then((balance) =>
+        this.logger.log(
+          `Initial sponsor balance: ${balance.totalBalance} of ${balance.coinType}`,
+        ),
+      )
+      .catch((error) =>
+        this.logger.error(
+          'Failed to fetch initial balance for sponsor identity',
+          error instanceof Error ? error.stack : String(error),
+        ),
+      ); */
   }
 
   async signGasTransaction(
@@ -120,7 +133,7 @@ export class SignerService implements OnModuleInit {
         address: identity.address,
         coinType,
       });
-
+      this.logger.log(`💳 Fetched balance for ${identity.role} at ${identity.address}: ${balance.balance ?? '0'} of ${coinType}`);
       return {
         role: identity.role,
         address: identity.address,
@@ -145,6 +158,7 @@ export class SignerService implements OnModuleInit {
     const rawKey = this.readFirstPresentEnv(envKeys);
     const keypair = this.createKeypairFromSecret(rawKey, role);
     const address = keypair.toSuiAddress();
+    this.logger.log(`🪪 Loaded ${role} identity with address ${address}`);
 
     return { role, keypair, address } satisfies LoadedIdentity;
   }
