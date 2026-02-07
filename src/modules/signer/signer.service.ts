@@ -5,17 +5,13 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Transaction } from '@mysten/sui/transactions';
-import { SuiGrpcClient } from '@mysten/sui/grpc';
-import {
+import type { Transaction } from '@mysten/sui/transactions';
+import type { SuiGrpcClient } from '@mysten/sui/grpc';
+import type {
   Keypair,
   SignatureScheme,
   SignatureWithBytes,
-  decodeSuiPrivateKey,
 } from '@mysten/sui/cryptography';
-import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
-import { Secp256k1Keypair } from '@mysten/sui/keypairs/secp256k1';
-import { Secp256r1Keypair } from '@mysten/sui/keypairs/secp256r1';
 import { SponsorGasTransactionDto } from './dto/sponsor-gas-transaction.dto';
 import {
   IdentityBalances,
@@ -32,17 +28,18 @@ export class SignerService implements OnModuleInit {
   private sponsor!: LoadedIdentity;
   private relayer!: LoadedIdentity;
   private suiClient!: SuiGrpcClient;
+  private sdkModulesPromise?: Promise<SuiSdkModules>;
 
   constructor(private readonly configService: ConfigService) {}
 
-  onModuleInit(): void {
-    this.suiClient = this.buildSuiClient();
-    this.sponsor = this.loadIdentity('sponsor', [
+  async onModuleInit(): Promise<void> {
+    this.suiClient = await this.buildSuiClient();
+    this.sponsor = await this.loadIdentity('sponsor', [
       'SUI_SPONSOR_PRIVATE_KEY',
       'SPONSOR_PRIVATE_KEY',
       'SUI_PRIV_KEY',
     ]);
-    this.relayer = this.loadIdentity('relayer', [
+    this.relayer = await this.loadIdentity('relayer', [
       'SUI_RELAYER_PRIVATE_KEY',
       'RELAYER_PRIVATE_KEY',
     ]);
@@ -51,7 +48,9 @@ export class SignerService implements OnModuleInit {
   async signGasTransaction(
     dto: SponsorGasTransactionDto,
   ): Promise<SignedGasTransaction> {
-    const transaction = this.createTransactionFromKind(dto.transactionBytes);
+    const transaction = await this.createTransactionFromKind(
+      dto.transactionBytes,
+    );
     transaction.setGasOwner(this.sponsor.address);
 
     const signature = await this.signWithSponsor(transaction);
@@ -97,7 +96,10 @@ export class SignerService implements OnModuleInit {
     }
   }
 
-  private createTransactionFromKind(serialized: string): Transaction {
+  private async createTransactionFromKind(
+    serialized: string,
+  ): Promise<Transaction> {
+    const { Transaction } = await this.loadSdkModules();
     try {
       return Transaction.fromKind(serialized);
     } catch (error) {
@@ -138,21 +140,22 @@ export class SignerService implements OnModuleInit {
     }
   }
 
-  private loadIdentity(
+  private async loadIdentity(
     role: SignerIdentityRole,
     envKeys: string[],
-  ): LoadedIdentity {
+  ): Promise<LoadedIdentity> {
     const rawKey = this.readFirstPresentEnv(envKeys);
-    const keypair = this.createKeypairFromSecret(rawKey, role);
+    const keypair = await this.createKeypairFromSecret(rawKey, role);
     const address = keypair.toSuiAddress();
 
     return { role, keypair, address } satisfies LoadedIdentity;
   }
 
-  private createKeypairFromSecret(
+  private async createKeypairFromSecret(
     value: string,
     role: SignerIdentityRole,
-  ): Keypair {
+  ): Promise<Keypair> {
+    const { decodeSuiPrivateKey } = await this.loadSdkModules();
     try {
       const parsed = decodeSuiPrivateKey(value);
       return this.instantiateKeypair(parsed.scheme, parsed.secretKey);
@@ -167,10 +170,12 @@ export class SignerService implements OnModuleInit {
     }
   }
 
-  private instantiateKeypair(
+  private async instantiateKeypair(
     scheme: SignatureScheme,
     secretKey: Uint8Array,
-  ): Keypair {
+  ): Promise<Keypair> {
+    const { Ed25519Keypair, Secp256k1Keypair, Secp256r1Keypair } =
+      await this.loadSdkModules();
     switch (scheme) {
       case 'ED25519':
         return Ed25519Keypair.fromSecretKey(secretKey);
@@ -185,11 +190,12 @@ export class SignerService implements OnModuleInit {
     }
   }
 
-  private buildSuiClient(): SuiGrpcClient {
+  private async buildSuiClient(): Promise<SuiGrpcClient> {
     const networkValue = this.readRequiredEnv<string>('SUI_NETWORK');
     const network = this.validateNetwork(networkValue);
     const baseUrl = this.readRequiredEnv<string>('SUI_GRPC_URL');
 
+    const { SuiGrpcClient } = await this.loadSdkModules();
     return new SuiGrpcClient({ network, baseUrl });
   }
 
@@ -230,4 +236,42 @@ export class SignerService implements OnModuleInit {
       `Missing required environment variable. Provide one of: ${keys.join(', ')}.`,
     );
   }
+
+  private async loadSdkModules(): Promise<SuiSdkModules> {
+    if (!this.sdkModulesPromise) {
+      this.sdkModulesPromise = this.importSdkModules();
+    }
+
+    return this.sdkModulesPromise;
+  }
+
+  private async importSdkModules(): Promise<SuiSdkModules> {
+    const [transactions, grpc, cryptography, ed25519, secp256k1, secp256r1] =
+      await Promise.all([
+        import('@mysten/sui/transactions'),
+        import('@mysten/sui/grpc'),
+        import('@mysten/sui/cryptography'),
+        import('@mysten/sui/keypairs/ed25519'),
+        import('@mysten/sui/keypairs/secp256k1'),
+        import('@mysten/sui/keypairs/secp256r1'),
+      ]);
+
+    return {
+      Transaction: transactions.Transaction,
+      SuiGrpcClient: grpc.SuiGrpcClient,
+      decodeSuiPrivateKey: cryptography.decodeSuiPrivateKey,
+      Secp256k1Keypair: secp256k1.Secp256k1Keypair,
+      Secp256r1Keypair: secp256r1.Secp256r1Keypair,
+      Ed25519Keypair: ed25519.Ed25519Keypair,
+    } satisfies SuiSdkModules;
+  }
 }
+
+type SuiSdkModules = {
+  Transaction: typeof import('@mysten/sui/transactions').Transaction;
+  SuiGrpcClient: typeof import('@mysten/sui/grpc').SuiGrpcClient;
+  decodeSuiPrivateKey: typeof import('@mysten/sui/cryptography').decodeSuiPrivateKey;
+  Ed25519Keypair: typeof import('@mysten/sui/keypairs/ed25519').Ed25519Keypair;
+  Secp256k1Keypair: typeof import('@mysten/sui/keypairs/secp256k1').Secp256k1Keypair;
+  Secp256r1Keypair: typeof import('@mysten/sui/keypairs/secp256r1').Secp256r1Keypair;
+};
