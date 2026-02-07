@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { Response } from 'express';
 
 interface ErrorResponse {
   success: false;
@@ -19,7 +20,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
-    const response = ctx.getResponse();
+    const response = ctx.getResponse<Response>();
 
     const { status, error, message } = this.normalizeException(exception);
 
@@ -66,13 +67,25 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
   private stringifyMessage(value: unknown): string {
     if (Array.isArray(value)) {
-      return value.map((item) => String(item)).join(', ');
+      return value
+        .map((item) =>
+          typeof item === 'object' ? JSON.stringify(item) : String(item),
+        )
+        .join(', ');
     }
 
     if (value === undefined || value === null) {
       return 'Unexpected error occurred.';
     }
 
-    return String(value);
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return 'Unexpected error occurred.';
+      }
+    }
+
+    return String(value as string | number | bigint | boolean | symbol);
   }
 }

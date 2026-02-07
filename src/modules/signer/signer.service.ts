@@ -35,7 +35,7 @@ export class SignerService implements OnModuleInit {
 
   constructor(private readonly configService: ConfigService) {}
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     this.suiClient = this.buildSuiClient();
     this.sponsor = this.loadIdentity('sponsor', [
       'SUI_SPONSOR_PRIVATE_KEY',
@@ -87,7 +87,10 @@ export class SignerService implements OnModuleInit {
         client: this.suiClient,
       });
     } catch (error) {
-      this.logger.error('Failed to sign gas transaction with sponsor identity');
+      this.logger.error(
+        'Failed to sign gas transaction with sponsor identity',
+        error instanceof Error ? error.stack : String(error),
+      );
       throw new BadRequestException(
         'Unable to sponsor gas for the provided transaction.',
       );
@@ -98,7 +101,10 @@ export class SignerService implements OnModuleInit {
     try {
       return Transaction.fromKind(serialized);
     } catch (error) {
-      this.logger.warn('Received invalid transaction bytes for sponsorship');
+      this.logger.warn(
+        'Received invalid transaction bytes for sponsorship',
+        error instanceof Error ? error.stack : String(error),
+      );
       throw new BadRequestException(
         'transactionBytes must be valid base64-encoded transaction kind bytes.',
       );
@@ -124,6 +130,7 @@ export class SignerService implements OnModuleInit {
     } catch (error) {
       this.logger.error(
         `Failed to fetch balance for ${identity.role} at ${identity.address}`,
+        error instanceof Error ? error.stack : String(error),
       );
       throw new BadRequestException(
         `Unable to retrieve balance for ${identity.role}.`,
@@ -150,7 +157,10 @@ export class SignerService implements OnModuleInit {
       const parsed = decodeSuiPrivateKey(value);
       return this.instantiateKeypair(parsed.scheme, parsed.secretKey);
     } catch (error) {
-      this.logger.error(`Invalid ${role} private key provided.`);
+      this.logger.error(
+        `Invalid ${role} private key provided.`,
+        error instanceof Error ? error.stack : String(error),
+      );
       throw new BadRequestException(
         `${role} private key is invalid or malformed.`,
       );

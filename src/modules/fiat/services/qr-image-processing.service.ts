@@ -33,7 +33,7 @@ export class QrImageProcessingService {
   );
 
   constructor(private readonly configService: ConfigService) {
-    this.ensureDirectories();
+    void this.ensureDirectories();
   }
 
   private async ensureDirectories(): Promise<void> {
@@ -42,7 +42,10 @@ export class QrImageProcessingService {
       await fs.mkdir(this.assetsDir + '/images', { recursive: true });
       await fs.mkdir(this.assetsDir + '/fonts', { recursive: true });
     } catch (error) {
-      this.logger.error('Error creating directories', error);
+      this.logger.error(
+        'Error creating directories',
+        error instanceof Error ? error.stack : String(error),
+      );
     }
   }
 
@@ -268,7 +271,6 @@ export class QrImageProcessingService {
     return sharp(Buffer.from(svg)).png().toBuffer();
   }
 
-
   /**
    * Upload image to IPFS via Pinata Cloud
    */
@@ -276,6 +278,7 @@ export class QrImageProcessingService {
     imageBuffer: Buffer,
     filename: string,
   ): Promise<string> {
+    type PinataPinResponse = { IpfsHash: string };
     const apiKey = this.configService.get<string>('IPFS_API_KEY');
     const apiSecret = this.configService.get<string>('IPFS_API_SECRET');
     const groupId = this.configService.get<string>('IPFS_GROUP_ID');
@@ -309,7 +312,7 @@ export class QrImageProcessingService {
         formData.append('pinataOptions', options);
       }
 
-      const response = await axios.post(
+      const response = await axios.post<PinataPinResponse>(
         'https://api.pinata.cloud/pinning/pinFileToIPFS',
         formData,
         {
@@ -325,7 +328,10 @@ export class QrImageProcessingService {
       const ipfsHash = response.data.IpfsHash;
       return `https://gateway.pinata.cloud/ipfs/${ipfsHash}`;
     } catch (error) {
-      this.logger.error('Error uploading to IPFS', error);
+      this.logger.error(
+        'Error uploading to IPFS',
+        error instanceof Error ? error.stack : String(error),
+      );
       throw error;
     }
   }

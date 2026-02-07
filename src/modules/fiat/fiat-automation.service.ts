@@ -35,7 +35,6 @@ export class FiatAutomationService {
     orderId: string,
     timeoutMs: number,
   ): Promise<string | null> {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
     const registered = this.jobQueueService.tryRegisterQrJob(orderId, details);
     if (!registered) {
       throw new ConflictException(
