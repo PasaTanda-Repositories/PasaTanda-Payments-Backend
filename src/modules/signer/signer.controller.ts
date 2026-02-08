@@ -17,7 +17,7 @@ import { SponsorGasTransactionDto } from './dto/sponsor-gas-transaction.dto';
 
 @ApiTags('Signer')
 @ApiSecurity('internal-api-key')
-@Controller('v1/signer')
+@Controller('signer')
 export class SignerController {
   constructor(private readonly signerService: SignerService) {}
 

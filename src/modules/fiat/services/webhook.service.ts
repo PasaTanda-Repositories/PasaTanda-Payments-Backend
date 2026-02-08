@@ -14,7 +14,10 @@ export class WebhookService {
 
   constructor(private readonly configService: ConfigService) {}
 
-  async sendQrGenerated(orderId: string, qrImageIpfsUrl: string): Promise<void> {
+  async sendQrGenerated(
+    orderId: string,
+    qrImageIpfsUrl: string,
+  ): Promise<void> {
     await this.dispatch({
       type: 'QR_GENERATED',
       order_id: orderId,
@@ -44,16 +47,16 @@ export class WebhookService {
   }
 
   private async dispatch(payload: WebhookPayload): Promise<void> {
-    const baseUrl = this.configService.get<string>('OPTUSBMS_BACKEND_URL');
+    const baseUrl = this.configService.get<string>('AGENTBE_BACKEND_URL');
 
     if (!baseUrl) {
       this.logger.warn(
-        `OPTUSBMS_BACKEND_URL is not configured. Skipping payload ${payload.type}.`,
+        `AGENTBE_BACKEND_URL is not configured. Skipping payload ${payload.type}.`,
       );
       return;
     }
 
-    const url = `${baseUrl.replace(/\/$/, '')}/webhook/payments/result`;
+    const url = `${baseUrl.replace(/\/$/, '')}/v1/webhooks/bank-provider`;
 
     try {
       await axios.post(url, payload, { timeout: 10000 });

@@ -43,7 +43,9 @@ export class QrImageProcessingService {
 
   constructor(private readonly configService: ConfigService) {
     this.saveLocally =
-      (this.configService.get<string>('SAVE_QR_IMAGES_LOCALLY') || '').toLowerCase() === 'true';
+      (
+        this.configService.get<string>('SAVE_QR_IMAGES_LOCALLY') || ''
+      ).toLowerCase() === 'true';
     void this.ensureDirectories();
   }
 
@@ -92,6 +94,7 @@ export class QrImageProcessingService {
     base64Qr: string,
     groupName: string,
     amountBs: string,
+    typeOfPayment: string,
   ): Promise<{ ipfsUrl?: string; savedPath?: string; error?: string }> {
     try {
       const qrBuffer = Buffer.from(base64Qr, 'base64');
@@ -100,6 +103,7 @@ export class QrImageProcessingService {
         preparedQr,
         groupName,
         amountBs,
+        typeOfPayment,
       );
 
       const timestamp = Date.now();
@@ -157,15 +161,20 @@ export class QrImageProcessingService {
       } else {
         const minSide = Math.min(metadata.width, metadata.height);
         const fallbackCrop = Math.max(Math.floor(minSide - 32), 0);
-        const left = Math.max(Math.floor((metadata.width - fallbackCrop) / 2), 0);
-        const top = Math.max(Math.floor((metadata.height - fallbackCrop) / 2), 0);
+        const left = Math.max(
+          Math.floor((metadata.width - fallbackCrop) / 2),
+          0,
+        );
+        const top = Math.max(
+          Math.floor((metadata.height - fallbackCrop) / 2),
+          0,
+        );
 
         if (fallbackCrop > 0) {
           workingBuffer = await sharp(qrBuffer)
             .extract({ left, top, width: fallbackCrop, height: fallbackCrop })
             .toBuffer();
 
-          
           // Save fallback cropped image as well
           if (this.saveLocally) {
             try {
@@ -174,7 +183,10 @@ export class QrImageProcessingService {
               await fs.writeFile(cropPath, workingBuffer);
               this.logger.log(`Saved fallback cropped QR to ${cropPath}`);
             } catch (err) {
-              this.logger.warn('Failed to save fallback cropped QR', err as Error);
+              this.logger.warn(
+                'Failed to save fallback cropped QR',
+                err as Error,
+              );
             }
           }
         }
@@ -225,12 +237,19 @@ export class QrImageProcessingService {
     qrBuffer: Buffer,
     groupName: string,
     amountBs: string,
+    typeOfPayment: string,
   ): Promise<Buffer> {
     const width = 1080;
     const height = 1080;
     const qrSize = 800;
 
-    const frameSvg = await this.buildFrameSvg(width, height, groupName, amountBs);
+    const frameSvg = await this.buildFrameSvg(
+      width,
+      height,
+      groupName,
+      amountBs,
+      typeOfPayment,
+    );
     const frameBuffer = await sharp(Buffer.from(frameSvg)).png().toBuffer();
 
     const qrResized = await sharp(qrBuffer)
@@ -266,24 +285,26 @@ export class QrImageProcessingService {
     height: number,
     groupName: string,
     amountBs: string,
+    typeOfPayment: string,
   ): Promise<string> {
     const fontUrl = await this.resolveHeadlineFontUrl();
     const safeGroup = this.escapeSvg(groupName);
     const safeAmount = this.escapeSvg(amountBs);
-    
+    const safeTypeOfPayment = this.escapeSvg(typeOfPayment);
+
     const fontFace = fontUrl
       ? `@font-face { font-family: 'StackSansHeadline'; src: url('${fontUrl}') format('truetype'); }`
       : '';
 
     // Layout configuration
-    const margin = 50; 
-    const cardWidth = width - (margin * 2);
-    const cardHeight = height - (margin * 2); 
-    
+    const margin = 50;
+    const cardWidth = width - margin * 2;
+    const cardHeight = height - margin * 2;
+
     // Vertical positions
-    const titleY = margin + 70; 
-    const footerY = height - margin - 30; 
-    
+    const titleY = margin + 70;
+    const footerY = height - margin - 30;
+
     // Side margins for vertical text
     const sideTextMargin = margin + 70;
 
@@ -310,22 +331,21 @@ export class QrImageProcessingService {
         <rect x="${margin}" y="${margin}" width="${cardWidth}" height="${cardHeight}" rx="24" ry="24" fill="#ffffff" filter="url(#shadow)" />
 
         <!-- Header -->
-        <text class="base title" x="${width/2}" y="${titleY}" text-anchor="middle">PasaTanda</text>
+        <text class="base title" x="${width / 2}" y="${titleY}" text-anchor="middle">PasaTanda</text>
         
         <!-- Left Side Logo -->
-        <text class="base side-title" x="${sideTextMargin}" y="${height/2}" text-anchor="middle" transform="rotate(-90 ${sideTextMargin} ${height/2})">PasaTanda</text>
+        <text class="base side-title" x="${sideTextMargin}" y="${height / 2}" text-anchor="middle" transform="rotate(-90 ${sideTextMargin} ${height / 2})">PasaTanda</text>
         
         <!-- Right Side Logo -->
-        <text class="base side-title" x="${width - sideTextMargin}" y="${height/2}" text-anchor="middle" transform="rotate(90 ${width - sideTextMargin} ${height/2})">PasaTanda</text>
+        <text class="base side-title" x="${width - sideTextMargin}" y="${height / 2}" text-anchor="middle" transform="rotate(90 ${width - sideTextMargin} ${height / 2})">PasaTanda</text>
         
         <!-- Footer -->
         <text class="base footer-text" x="${margin + 50}" y="${footerY}" text-anchor="start">${safeGroup}</text>
         <text class="base amount-text" x="${width / 2}" y="${footerY}" text-anchor="middle">Bs. ${safeAmount}</text>
-        <text class="base footer-text" x="${width - margin - 50}" y="${footerY}" text-anchor="end">1ra cuota</text>
+        <text class="base footer-text" x="${width - margin - 50}" y="${footerY}" text-anchor="end">${safeTypeOfPayment}</text>
       </svg>
     `;
   }
-
 
   /**
    * Upload image to IPFS via Pinata Cloud

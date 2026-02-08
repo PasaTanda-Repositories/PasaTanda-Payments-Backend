@@ -25,7 +25,7 @@ import { VerifyPaymentDto } from './dto/verify-payment.dto';
 import { SetTwoFaDto } from './dto/set-2fa.dto';
 
 @ApiTags('Fiat Automation')
-@Controller('v1/fiat')
+@Controller('fiat')
 export class FiatController {
   private readonly logger = new Logger(FiatController.name);
 

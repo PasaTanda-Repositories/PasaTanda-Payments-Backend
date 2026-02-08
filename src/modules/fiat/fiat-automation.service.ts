@@ -27,6 +27,7 @@ export class FiatAutomationService {
         qrBase64,
         dto.details,
         dto.amount.toString(),
+        dto.typeOfPayment,
       );
       const ipfsLink =
         processedQr.ipfsUrl ?? this.qrImageProcessingService.getDefaultQrLink();

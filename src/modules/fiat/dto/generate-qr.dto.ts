@@ -45,9 +45,29 @@ export class GenerateQrDto {
   amount!: number;
 
   @ApiProperty({
+    description: 'Type of payment (letters and numbers only)',
+    example: 'garantia',
+  })
+  @Transform(({ value }) => {
+    const current = toNonEmptyString(value) ?? '';
+    return current
+      .trim()
+      .replace(/\s+/g, '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase();
+  })
+  @IsString()
+  @MinLength(1, { message: 'El tipo de pago debe tener al menos 1 carácter' })
+  @MaxLength(30, { message: 'El tipo de pago no puede exceder 30 caracteres' })
+  @Matches(/^[A-Z0-9]+$/, {
+    message: 'El tipo de pago solo puede contener letras y números',
+  })
+  typeOfPayment!: string;
+
+  @ApiProperty({
     description:
       'Glosa or memo text (alphanumeric + hyphens/underscores only, no spaces)',
-    example: 'BM-QR-INV-1001',
+    example: 'BMQRINV1001',
   })
   @Transform(({ value, obj }) => {
     let current = toNonEmptyString(value);

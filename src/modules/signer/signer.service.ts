@@ -39,15 +39,10 @@ export class SignerService implements OnModuleInit {
   onModuleInit(): void {
     this.logger.log('Initializing SignerService and loading identities');
     this.suiClient = this.buildSuiClient();
-    this.sponsor = this.loadIdentity('sponsor', [
-      'SUI_SPONSOR_PRIVATE_KEY',
-    ]);
-    this.relayer = this.loadIdentity('relayer', [
-      'SUI_RELAYER_PRIVATE_KEY',
-    ]);
+    this.sponsor = this.loadIdentity('sponsor', ['SUI_SPONSOR_PRIVATE_KEY']);
+    this.relayer = this.loadIdentity('relayer', ['SUI_RELAYER_PRIVATE_KEY']);
 
-
-/*     this.fetchBalance(this.sponsor, this.configService.get<string>('SUI_COIN_TYPE') ?? '0x2::sui::SUI')
+    /*     this.fetchBalance(this.sponsor, this.configService.get<string>('SUI_COIN_TYPE') ?? '0x2::sui::SUI')
       .then((balance) =>
         this.logger.log(
           `Initial sponsor balance: ${balance.totalBalance} of ${balance.coinType}`,
@@ -64,7 +59,12 @@ export class SignerService implements OnModuleInit {
   async signGasTransaction(
     dto: SponsorGasTransactionDto,
   ): Promise<SignedGasTransaction> {
+    this.logger.log('🚀 Starting gas sponsorship flow');
+    this.logger.debug('Received transaction payload', dto);
+
     const transaction = this.createTransactionFromKind(dto.transactionBytes);
+    this.logger.log(transaction, 'Deserialized transaction object');
+    this.logger.log('Setting gas owner to sponsor identity');
     transaction.setGasOwner(this.sponsor.address);
 
     const signature = await this.signWithSponsor(transaction);
@@ -112,6 +112,7 @@ export class SignerService implements OnModuleInit {
 
   private createTransactionFromKind(serialized: string): Transaction {
     try {
+      this.logger.log('Deserializing transaction kind bytes');
       return Transaction.fromKind(serialized);
     } catch (error) {
       this.logger.warn(
@@ -133,7 +134,9 @@ export class SignerService implements OnModuleInit {
         address: identity.address,
         coinType,
       });
-      this.logger.log(`💳 Fetched balance for ${identity.role} at ${identity.address}: ${balance.balance ?? '0'} of ${coinType}`);
+      this.logger.log(
+        `💳 Fetched balance for ${identity.role} at ${identity.address}: ${balance.balance ?? '0'} of ${coinType}`,
+      );
       return {
         role: identity.role,
         address: identity.address,
